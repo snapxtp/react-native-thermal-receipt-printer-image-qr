@@ -55,9 +55,6 @@
     "rimraf": "^3.0.2",
     "typescript": "^4.0.2"
   },
-  "peerDependencies": {
-    "react-native-ping": "*"
-  },
   "author": "thiendangit",
   "homepage": "https://github.com/thiendangit/react-native-thermal-receipt-printer-image-qr#readme",
   "license": "ISC"
