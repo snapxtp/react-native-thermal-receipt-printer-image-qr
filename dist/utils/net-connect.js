@@ -35,7 +35,7 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
     }
 };
 // @ts-ignore
-import Ping from 'react-native-ping';
+const Ping = async () => true;
 export var connectToHost = function (ipAddress, timeout) {
     if (timeout === void 0) { timeout = 4000; }
     return new Promise(function (resolve, reject) { return __awaiter(void 0, void 0, void 0, function () {
@@ -55,7 +55,7 @@ export var connectToHost = function (ipAddress, timeout) {
                      * @returns
                      * @memberof Ping
                      */
-                    return [4 /*yield*/, Ping.start(ipAddress, { timeout: timeout })];
+                    return [4 /*yield*/];
                 case 1:
                     /**
                      *
