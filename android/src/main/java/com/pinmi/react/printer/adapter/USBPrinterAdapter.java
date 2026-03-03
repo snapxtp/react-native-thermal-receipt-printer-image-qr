@@ -53,6 +53,11 @@ public class USBPrinterAdapter implements PrinterAdapter {
     private UsbEndpoint mEndPoint;
     private static final String ACTION_USB_PERMISSION = "com.pinmi.react.USBPrinter.USB_PERMISSION";
     private static final String EVENT_USB_DEVICE_ATTACHED = "usbAttached";
+    private static final String EVENT_USB_DEVICE_DETACHED = "usbDetached";
+
+    private Callback mPendingPermissionSuccessCallback;
+    private Callback mPendingPermissionErrorCallback;
+    private UsbDevice mPendingPermissionDevice;
 
     private final static char ESC_CHAR = 0x1B;
     private static final byte[] SELECT_BIT_IMAGE_MODE = {0x1B, 0x2A, 33};
@@ -82,22 +87,34 @@ public class USBPrinterAdapter implements PrinterAdapter {
                         assert usbDevice != null;
                         Log.i(LOG_TAG, "success to grant permission for device " + usbDevice.getDeviceId() + ", vendor_id: " + usbDevice.getVendorId() + " product_id: " + usbDevice.getProductId());
                         mUsbDevice = usbDevice;
+                        if (mPendingPermissionSuccessCallback != null && isSameDevice(usbDevice, mPendingPermissionDevice)) {
+                            mPendingPermissionSuccessCallback.invoke(new USBPrinterDevice(usbDevice).toRNWritableMap());
+                        }
                     } else {
                         assert usbDevice != null;
                         Toast.makeText(context, "User refuses to obtain USB device permissions" + usbDevice.getDeviceName(), Toast.LENGTH_LONG).show();
+                        if (mPendingPermissionErrorCallback != null && isSameDevice(usbDevice, mPendingPermissionDevice)) {
+                            mPendingPermissionErrorCallback.invoke("User refuses to obtain USB device permissions");
+                        }
                     }
+                    clearPendingPermissionCallbacks();
                 }
             } else if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) {
-                if (mUsbDevice != null) {
-                    Toast.makeText(context, "USB device has been turned off", Toast.LENGTH_LONG).show();
-                    closeConnectionIfExists();
+                synchronized (this) {
+                    UsbDevice detachedDevice = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                    boolean isCurrentDeviceDetached =
+                            mUsbDevice != null && (detachedDevice == null || isSameDevice(mUsbDevice, detachedDevice));
+                    if (isCurrentDeviceDetached) {
+                        Toast.makeText(context, "USB device has been turned off", Toast.LENGTH_LONG).show();
+                        closeConnectionIfExists();
+                        mUsbDevice = null;
+                    }
+                    emitUsbEvent(EVENT_USB_DEVICE_DETACHED, detachedDevice);
                 }
             } else if (UsbManager.ACTION_USB_ACCESSORY_ATTACHED.equals(action) || UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action)) {
                 synchronized (this) {
-                    if (mContext != null) {
-                        ((ReactApplicationContext) mContext).getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
-                                .emit(EVENT_USB_DEVICE_ATTACHED, null);
-                    }
+                    UsbDevice attachedDevice = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                    emitUsbEvent(EVENT_USB_DEVICE_ATTACHED, attachedDevice);
                 }
             }
         }
@@ -120,7 +137,9 @@ public class USBPrinterAdapter implements PrinterAdapter {
 
     public void closeConnectionIfExists() {
         if (mUsbDeviceConnection != null) {
-            mUsbDeviceConnection.releaseInterface(mUsbInterface);
+            if (mUsbInterface != null) {
+                mUsbDeviceConnection.releaseInterface(mUsbInterface);
+            }
             mUsbDeviceConnection.close();
             mUsbInterface = null;
             mEndPoint = null;
@@ -150,26 +169,25 @@ public class USBPrinterAdapter implements PrinterAdapter {
         }
 
         USBPrinterDeviceId usbPrinterDeviceId = (USBPrinterDeviceId) printerDeviceId;
-        if (mUsbDevice != null && mUsbDevice.getVendorId() == usbPrinterDeviceId.getVendorId() && mUsbDevice.getProductId() == usbPrinterDeviceId.getProductId()) {
-            Log.i(LOG_TAG, "already selected device, do not need repeat to connect");
-            if (!mUSBManager.hasPermission(mUsbDevice)) {
-                closeConnectionIfExists();
-                mUSBManager.requestPermission(mUsbDevice, mPermissionIndent);
-            }
-            successCallback.invoke(new USBPrinterDevice(mUsbDevice).toRNWritableMap());
-            return;
-        }
-        closeConnectionIfExists();
-        if (mUSBManager.getDeviceList().size() == 0) {
+        clearPendingPermissionCallbacks();
+        List<UsbDevice> usbDevices = new ArrayList<>(mUSBManager.getDeviceList().values());
+        if (usbDevices.size() == 0) {
             errorCallback.invoke("Device list is empty, can not choose device");
             return;
         }
-        for (UsbDevice usbDevice : mUSBManager.getDeviceList().values()) {
+        for (UsbDevice usbDevice : usbDevices) {
             if (usbDevice.getVendorId() == usbPrinterDeviceId.getVendorId() && usbDevice.getProductId() == usbPrinterDeviceId.getProductId()) {
                 Log.v(LOG_TAG, "request for device: vendor_id: " + usbPrinterDeviceId.getVendorId() + ", product_id: " + usbPrinterDeviceId.getProductId());
                 closeConnectionIfExists();
+                mUsbDevice = usbDevice;
+                if (mUSBManager.hasPermission(usbDevice)) {
+                    successCallback.invoke(new USBPrinterDevice(usbDevice).toRNWritableMap());
+                    return;
+                }
+                mPendingPermissionSuccessCallback = successCallback;
+                mPendingPermissionErrorCallback = errorCallback;
+                mPendingPermissionDevice = usbDevice;
                 mUSBManager.requestPermission(usbDevice, mPermissionIndent);
-                successCallback.invoke(new USBPrinterDevice(usbDevice).toRNWritableMap());
                 return;
             }
         }
@@ -178,13 +196,23 @@ public class USBPrinterAdapter implements PrinterAdapter {
         return;
     }
 
-    private boolean openConnection() {
+    private boolean openConnection(Callback errorCallback) {
         if (mUsbDevice == null) {
             Log.e(LOG_TAG, "USB Deivce is not initialized");
+            errorCallback.invoke("USB device is not initialized, reconnect the printer first");
             return false;
         }
         if (mUSBManager == null) {
             Log.e(LOG_TAG, "USB Manager is not initialized");
+            errorCallback.invoke("USB manager is not initialized");
+            return false;
+        }
+        if (!mUSBManager.hasPermission(mUsbDevice)) {
+            closeConnectionIfExists();
+            clearPendingPermissionCallbacks();
+            mPendingPermissionDevice = mUsbDevice;
+            mUSBManager.requestPermission(mUsbDevice, mPermissionIndent);
+            errorCallback.invoke("USB permission is missing, permission requested. Please retry printing.");
             return false;
         }
 
@@ -225,7 +253,7 @@ public class USBPrinterAdapter implements PrinterAdapter {
     public void printRawData(String data, Callback errorCallback) {
         final String rawData = data;
         Log.v(LOG_TAG, "start to print raw data " + data);
-        boolean isConnected = openConnection();
+        boolean isConnected = openConnection(errorCallback);
         if (isConnected) {
             Log.v(LOG_TAG, "Connected to device");
             new Thread(new Runnable() {
@@ -234,6 +262,10 @@ public class USBPrinterAdapter implements PrinterAdapter {
                     byte[] bytes = Base64.decode(rawData, Base64.DEFAULT);
                     int b = mUsbDeviceConnection.bulkTransfer(mEndPoint, bytes, bytes.length, 100000);
                     Log.i(LOG_TAG, "Return Status: b-->" + b);
+                    if (b < 0) {
+                        closeConnectionIfExists();
+                        errorCallback.invoke("USB write failed, connection may be lost. Reconnect and retry.");
+                    }
                 }
             }).start();
         } else {
@@ -273,38 +305,64 @@ public class USBPrinterAdapter implements PrinterAdapter {
         }
 
         Log.v(LOG_TAG, "start to print image data " + bitmapImage);
-        boolean isConnected = openConnection();
+        boolean isConnected = openConnection(errorCallback);
         if (isConnected) {
             Log.v(LOG_TAG, "Connected to device");
             int[][] pixels = getPixelsSlow(bitmapImage, imageWidth, imageHeight);
 
-            int b = mUsbDeviceConnection.bulkTransfer(mEndPoint, SET_LINE_SPACE_24, SET_LINE_SPACE_24.length, 100000);
+            if (!writeToUsb(SET_LINE_SPACE_24)) {
+                closeConnectionIfExists();
+                errorCallback.invoke("USB write failed, connection may be lost. Reconnect and retry.");
+                return;
+            }
 
-            b = mUsbDeviceConnection.bulkTransfer(mEndPoint, CENTER_ALIGN, CENTER_ALIGN.length, 100000);
+            if (!writeToUsb(CENTER_ALIGN)) {
+                closeConnectionIfExists();
+                errorCallback.invoke("USB write failed, connection may be lost. Reconnect and retry.");
+                return;
+            }
 
             for (int y = 0; y < pixels.length; y += 24) {
                 // Like I said before, when done sending data,
                 // the printer will resume to normal text printing
-                mUsbDeviceConnection.bulkTransfer(mEndPoint, SELECT_BIT_IMAGE_MODE, SELECT_BIT_IMAGE_MODE.length, 100000);
+                if (!writeToUsb(SELECT_BIT_IMAGE_MODE)) {
+                    closeConnectionIfExists();
+                    errorCallback.invoke("USB write failed, connection may be lost. Reconnect and retry.");
+                    return;
+                }
 
                 // Set nL and nH based on the width of the image
                 byte[] row = new byte[]{(byte) (0x00ff & pixels[y].length)
                         , (byte) ((0xff00 & pixels[y].length) >> 8)};
 
-                mUsbDeviceConnection.bulkTransfer(mEndPoint, row, row.length, 100000);
+                if (!writeToUsb(row)) {
+                    closeConnectionIfExists();
+                    errorCallback.invoke("USB write failed, connection may be lost. Reconnect and retry.");
+                    return;
+                }
 
                 for (int x = 0; x < pixels[y].length; x++) {
                     // for each stripe, recollect 3 bytes (3 bytes = 24 bits)
                     byte[] slice = recollectSlice(y, x, pixels);
-                    mUsbDeviceConnection.bulkTransfer(mEndPoint, slice, slice.length, 100000);
+                    if (!writeToUsb(slice)) {
+                        closeConnectionIfExists();
+                        errorCallback.invoke("USB write failed, connection may be lost. Reconnect and retry.");
+                        return;
+                    }
                 }
 
                 // Do a line feed, if not the printing will resume on the same line
-                mUsbDeviceConnection.bulkTransfer(mEndPoint, LINE_FEED, LINE_FEED.length, 100000);
+                if (!writeToUsb(LINE_FEED)) {
+                    closeConnectionIfExists();
+                    errorCallback.invoke("USB write failed, connection may be lost. Reconnect and retry.");
+                    return;
+                }
             }
 
-            mUsbDeviceConnection.bulkTransfer(mEndPoint, SET_LINE_SPACE_32, SET_LINE_SPACE_32.length, 100000);
-            mUsbDeviceConnection.bulkTransfer(mEndPoint, LINE_FEED, LINE_FEED.length, 100000);
+            if (!writeToUsb(SET_LINE_SPACE_32) || !writeToUsb(LINE_FEED)) {
+                closeConnectionIfExists();
+                errorCallback.invoke("USB write failed, connection may be lost. Reconnect and retry.");
+            }
         } else {
             String msg = "failed to connected to device";
             Log.v(LOG_TAG, msg);
@@ -321,43 +379,98 @@ public class USBPrinterAdapter implements PrinterAdapter {
         }
 
         Log.v(LOG_TAG, "start to print image data " + bitmapImage);
-        boolean isConnected = openConnection();
+        boolean isConnected = openConnection(errorCallback);
         if (isConnected) {
             Log.v(LOG_TAG, "Connected to device");
             int[][] pixels = getPixelsSlow(bitmapImage, imageWidth, imageHeight);
 
-            int b = mUsbDeviceConnection.bulkTransfer(mEndPoint, SET_LINE_SPACE_24, SET_LINE_SPACE_24.length, 100000);
+            if (!writeToUsb(SET_LINE_SPACE_24)) {
+                closeConnectionIfExists();
+                errorCallback.invoke("USB write failed, connection may be lost. Reconnect and retry.");
+                return;
+            }
 
-            b = mUsbDeviceConnection.bulkTransfer(mEndPoint, CENTER_ALIGN, CENTER_ALIGN.length, 100000);
+            if (!writeToUsb(CENTER_ALIGN)) {
+                closeConnectionIfExists();
+                errorCallback.invoke("USB write failed, connection may be lost. Reconnect and retry.");
+                return;
+            }
 
             for (int y = 0; y < pixels.length; y += 24) {
                 // Like I said before, when done sending data,
                 // the printer will resume to normal text printing
-                mUsbDeviceConnection.bulkTransfer(mEndPoint, SELECT_BIT_IMAGE_MODE, SELECT_BIT_IMAGE_MODE.length, 100000);
+                if (!writeToUsb(SELECT_BIT_IMAGE_MODE)) {
+                    closeConnectionIfExists();
+                    errorCallback.invoke("USB write failed, connection may be lost. Reconnect and retry.");
+                    return;
+                }
 
                 // Set nL and nH based on the width of the image
                 byte[] row = new byte[]{(byte) (0x00ff & pixels[y].length)
                         , (byte) ((0xff00 & pixels[y].length) >> 8)};
 
-                mUsbDeviceConnection.bulkTransfer(mEndPoint, row, row.length, 100000);
+                if (!writeToUsb(row)) {
+                    closeConnectionIfExists();
+                    errorCallback.invoke("USB write failed, connection may be lost. Reconnect and retry.");
+                    return;
+                }
 
                 for (int x = 0; x < pixels[y].length; x++) {
                     // for each stripe, recollect 3 bytes (3 bytes = 24 bits)
                     byte[] slice = recollectSlice(y, x, pixels);
-                    mUsbDeviceConnection.bulkTransfer(mEndPoint, slice, slice.length, 100000);
+                    if (!writeToUsb(slice)) {
+                        closeConnectionIfExists();
+                        errorCallback.invoke("USB write failed, connection may be lost. Reconnect and retry.");
+                        return;
+                    }
                 }
 
                 // Do a line feed, if not the printing will resume on the same line
-                mUsbDeviceConnection.bulkTransfer(mEndPoint, LINE_FEED, LINE_FEED.length, 100000);
+                if (!writeToUsb(LINE_FEED)) {
+                    closeConnectionIfExists();
+                    errorCallback.invoke("USB write failed, connection may be lost. Reconnect and retry.");
+                    return;
+                }
             }
 
-            mUsbDeviceConnection.bulkTransfer(mEndPoint, SET_LINE_SPACE_32, SET_LINE_SPACE_32.length, 100000);
-            mUsbDeviceConnection.bulkTransfer(mEndPoint, LINE_FEED, LINE_FEED.length, 100000);
+            if (!writeToUsb(SET_LINE_SPACE_32) || !writeToUsb(LINE_FEED)) {
+                closeConnectionIfExists();
+                errorCallback.invoke("USB write failed, connection may be lost. Reconnect and retry.");
+            }
         } else {
             String msg = "failed to connected to device";
             Log.v(LOG_TAG, msg);
             errorCallback.invoke(msg);
         }
 
+    }
+
+    private void emitUsbEvent(String eventName, UsbDevice usbDevice) {
+        if (mContext != null) {
+            ((ReactApplicationContext) mContext).getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
+                    .emit(eventName, usbDevice != null ? new USBPrinterDevice(usbDevice).toRNWritableMap() : null);
+        }
+    }
+
+    private void clearPendingPermissionCallbacks() {
+        mPendingPermissionSuccessCallback = null;
+        mPendingPermissionErrorCallback = null;
+        mPendingPermissionDevice = null;
+    }
+
+    private boolean isSameDevice(UsbDevice left, UsbDevice right) {
+        return left != null
+                && right != null
+                && left.getDeviceId() == right.getDeviceId()
+                && left.getVendorId() == right.getVendorId()
+                && left.getProductId() == right.getProductId();
+    }
+
+    private boolean writeToUsb(byte[] bytes) {
+        if (mUsbDeviceConnection == null || mEndPoint == null) {
+            return false;
+        }
+        int transferred = mUsbDeviceConnection.bulkTransfer(mEndPoint, bytes, bytes.length, 100000);
+        return transferred >= 0;
     }
 }

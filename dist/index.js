@@ -833,7 +833,18 @@ var NetPrinterEventEmitter =
   Platform.OS === "ios"
     ? new NativeEventEmitter(RNNetPrinter)
     : new NativeEventEmitter();
-export { COMMANDS, NetPrinter, BLEPrinter, USBPrinter, NetPrinterEventEmitter };
+var USBPrinterEventEmitter =
+  Platform.OS === "ios"
+    ? new NativeEventEmitter(RNUSBPrinter)
+    : new NativeEventEmitter();
+export {
+  COMMANDS,
+  NetPrinter,
+  BLEPrinter,
+  USBPrinter,
+  NetPrinterEventEmitter,
+  USBPrinterEventEmitter,
+};
 export var RN_THERMAL_RECEIPT_PRINTER_EVENTS;
 (function (RN_THERMAL_RECEIPT_PRINTER_EVENTS) {
   RN_THERMAL_RECEIPT_PRINTER_EVENTS["EVENT_NET_PRINTER_SCANNED_SUCCESS"] =
@@ -842,6 +853,10 @@ export var RN_THERMAL_RECEIPT_PRINTER_EVENTS;
     "scannerRunning";
   RN_THERMAL_RECEIPT_PRINTER_EVENTS["EVENT_NET_PRINTER_SCANNED_ERROR"] =
     "registerError";
+  RN_THERMAL_RECEIPT_PRINTER_EVENTS["EVENT_USB_DEVICE_ATTACHED"] =
+    "usbAttached";
+  RN_THERMAL_RECEIPT_PRINTER_EVENTS["EVENT_USB_DEVICE_DETACHED"] =
+    "usbDetached";
 })(
   RN_THERMAL_RECEIPT_PRINTER_EVENTS || (RN_THERMAL_RECEIPT_PRINTER_EVENTS = {})
 );

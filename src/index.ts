@@ -552,10 +552,24 @@ const NetPrinterEventEmitter =
     ? new NativeEventEmitter(RNNetPrinter)
     : new NativeEventEmitter();
 
-export { COMMANDS, NetPrinter, BLEPrinter, USBPrinter, NetPrinterEventEmitter };
+const USBPrinterEventEmitter =
+  Platform.OS === "ios"
+    ? new NativeEventEmitter(RNUSBPrinter)
+    : new NativeEventEmitter();
+
+export {
+  COMMANDS,
+  NetPrinter,
+  BLEPrinter,
+  USBPrinter,
+  NetPrinterEventEmitter,
+  USBPrinterEventEmitter,
+};
 
 export enum RN_THERMAL_RECEIPT_PRINTER_EVENTS {
   EVENT_NET_PRINTER_SCANNED_SUCCESS = "scannerResolved",
   EVENT_NET_PRINTER_SCANNING = "scannerRunning",
   EVENT_NET_PRINTER_SCANNED_ERROR = "registerError",
+  EVENT_USB_DEVICE_ATTACHED = "usbAttached",
+  EVENT_USB_DEVICE_DETACHED = "usbDetached",
 }

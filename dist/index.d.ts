@@ -154,9 +154,19 @@ declare const NetPrinter: {
   ) => void;
 };
 declare const NetPrinterEventEmitter: NativeEventEmitter;
-export { COMMANDS, NetPrinter, BLEPrinter, USBPrinter, NetPrinterEventEmitter };
+declare const USBPrinterEventEmitter: NativeEventEmitter;
+export {
+  COMMANDS,
+  NetPrinter,
+  BLEPrinter,
+  USBPrinter,
+  NetPrinterEventEmitter,
+  USBPrinterEventEmitter,
+};
 export declare enum RN_THERMAL_RECEIPT_PRINTER_EVENTS {
   EVENT_NET_PRINTER_SCANNED_SUCCESS = "scannerResolved",
   EVENT_NET_PRINTER_SCANNING = "scannerRunning",
   EVENT_NET_PRINTER_SCANNED_ERROR = "registerError",
+  EVENT_USB_DEVICE_ATTACHED = "usbAttached",
+  EVENT_USB_DEVICE_DETACHED = "usbDetached",
 }
