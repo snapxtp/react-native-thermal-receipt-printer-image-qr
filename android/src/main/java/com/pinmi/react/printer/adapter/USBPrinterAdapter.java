@@ -114,7 +114,9 @@ public class USBPrinterAdapter implements PrinterAdapter {
             } else if (UsbManager.ACTION_USB_ACCESSORY_ATTACHED.equals(action) || UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action)) {
                 synchronized (this) {
                     UsbDevice attachedDevice = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
-                    emitUsbEvent(EVENT_USB_DEVICE_ATTACHED, attachedDevice);
+                    if (attachedDevice != null && isUsbPrinter(attachedDevice)) {
+                        emitUsbEvent(EVENT_USB_DEVICE_ATTACHED, attachedDevice);
+                    }
                 }
             }
         }
@@ -155,9 +157,20 @@ public class USBPrinterAdapter implements PrinterAdapter {
         }
 
         for (UsbDevice usbDevice : mUSBManager.getDeviceList().values()) {
-            lists.add(new USBPrinterDevice(usbDevice));
+            if (isUsbPrinter(usbDevice)) {
+                lists.add(new USBPrinterDevice(usbDevice));
+            }
         }
         return lists;
+    }
+
+    private boolean isUsbPrinter(UsbDevice usbDevice) {
+        for (int i = 0; i < usbDevice.getInterfaceCount(); i++) {
+            if (usbDevice.getInterface(i).getInterfaceClass() == UsbConstants.USB_CLASS_PRINTER) {
+                return true;
+            }
+        }
+        return false;
     }
 
 
