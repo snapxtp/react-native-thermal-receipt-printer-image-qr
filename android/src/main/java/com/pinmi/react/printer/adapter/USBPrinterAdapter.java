@@ -137,6 +137,13 @@ public class USBPrinterAdapter implements PrinterAdapter {
     }
 
 
+    public boolean isConnected() {
+        return mUsbDevice != null
+                && mUSBManager != null
+                && mUSBManager.hasPermission(mUsbDevice)
+                && mUsbDeviceConnection != null;
+    }
+
     public void closeConnectionIfExists() {
         if (mUsbDeviceConnection != null) {
             if (mUsbInterface != null) {

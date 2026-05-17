@@ -64,6 +64,15 @@ public class RNUSBPrinterModule extends ReactContextBaseJavaModule implements RN
     }
 
     @ReactMethod
+    public void isConnected(Callback successCallback, Callback errorCallback) {
+        if (this.adapter == null) {
+            errorCallback.invoke("USB adapter is not initialized. Call init() first.");
+            return;
+        }
+        successCallback.invoke(((USBPrinterAdapter) this.adapter).isConnected());
+    }
+
+    @ReactMethod
     @Override
     public void printRawData(String base64Data, Callback errorCallback){
         adapter.printRawData(base64Data, errorCallback);

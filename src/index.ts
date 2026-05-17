@@ -144,6 +144,14 @@ const USBPrinter = {
       resolve();
     }),
 
+  isConnected: (): Promise<boolean> =>
+    new Promise((resolve, reject) =>
+      RNUSBPrinter.isConnected(
+        (connected: boolean) => resolve(connected),
+        (error: Error) => reject(error)
+      )
+    ),
+
   printText: (text: string, opts: PrinterOptions = {}): void =>
     RNUSBPrinter.printRawData(textTo64Buffer(text, opts), (error: Error) =>
       console.warn(error)
@@ -431,6 +439,26 @@ const NetPrinter = {
       resolve();
     }),
 
+  isConnected: (): Promise<boolean> =>
+    new Promise((resolve, reject) =>
+      RNNetPrinter.isConnected(
+        (connected: boolean) => resolve(connected),
+        (error: Error) => reject(error)
+      )
+    ),
+
+  startMonitoring: (intervalMs: number = 5000): void => {
+    if (Platform.OS === "android") {
+      RNNetPrinter.startNetPrinterMonitoring(intervalMs);
+    }
+  },
+
+  stopMonitoring: (): void => {
+    if (Platform.OS === "android") {
+      RNNetPrinter.stopNetPrinterMonitoring();
+    }
+  },
+
   printText: (text: string, opts = {}): void => {
     if (Platform.OS === "ios") {
       const processedText = textPreprocessingIOS(text, false, false);
@@ -570,6 +598,7 @@ export enum RN_THERMAL_RECEIPT_PRINTER_EVENTS {
   EVENT_NET_PRINTER_SCANNED_SUCCESS = "scannerResolved",
   EVENT_NET_PRINTER_SCANNING = "scannerRunning",
   EVENT_NET_PRINTER_SCANNED_ERROR = "registerError",
+  EVENT_NET_PRINTER_DISCONNECTED = "netDisconnected",
   EVENT_USB_DEVICE_ATTACHED = "usbAttached",
   EVENT_USB_DEVICE_DETACHED = "usbDetached",
 }

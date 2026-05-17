@@ -53,7 +53,11 @@ public class NetPrinterAdapter implements PrinterAdapter {
     private final static byte[] LINE_FEED = new byte[]{0x0A};
     private static final byte[] CENTER_ALIGN = {0x1B, 0X61, 0X31};
 
+    private static final String EVENT_NET_PRINTER_DISCONNECTED = "netDisconnected";
+
     private Socket mSocket;
+    private Thread mMonitorThread = null;
+    private volatile boolean mMonitorRunning = false;
 
     private boolean isRunning = false;
 
@@ -179,6 +183,7 @@ public class NetPrinterAdapter implements PrinterAdapter {
 
         try {
             Socket socket = new Socket(netPrinterDeviceId.getHost(), netPrinterDeviceId.getPort());
+            socket.setKeepAlive(true);
             if (socket.isConnected()) {
                 closeConnectionIfExists();
                 this.mSocket = socket;
@@ -195,8 +200,62 @@ public class NetPrinterAdapter implements PrinterAdapter {
         }
     }
 
+    public boolean isConnected() {
+        return mSocket != null && !mSocket.isClosed() && mSocket.isConnected();
+    }
+
+    public void startMonitoring(final int intervalMs) {
+        stopMonitoring();
+        mMonitorRunning = true;
+        mMonitorThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                while (mMonitorRunning) {
+                    try {
+                        Thread.sleep(intervalMs);
+                    } catch (InterruptedException e) {
+                        break;
+                    }
+                    if (!mMonitorRunning || mSocket == null) continue;
+                    try {
+                        mSocket.sendUrgentData(0xFF);
+                    } catch (IOException e) {
+                        if (mMonitorRunning) {
+                            Log.w(LOG_TAG, "Net printer connection lost: " + e.getMessage());
+                            mMonitorRunning = false;
+                            Socket socketToClose = mSocket;
+                            mSocket = null;
+                            if (socketToClose != null && !socketToClose.isClosed()) {
+                                try { socketToClose.close(); } catch (IOException ignored) {}
+                            }
+                            WritableMap payload = Arguments.createMap();
+                            if (mNetDevice != null) {
+                                payload.putString("host", ((NetPrinterDeviceId) mNetDevice.getPrinterDeviceId()).getHost());
+                                payload.putInt("port", ((NetPrinterDeviceId) mNetDevice.getPrinterDeviceId()).getPort());
+                            }
+                            emitEvent(EVENT_NET_PRINTER_DISCONNECTED, payload);
+                        }
+                        break;
+                    }
+                }
+            }
+        });
+        mMonitorThread.setDaemon(true);
+        mMonitorThread.start();
+    }
+
+    public void stopMonitoring() {
+        mMonitorRunning = false;
+        Thread thread = mMonitorThread;
+        mMonitorThread = null;
+        if (thread != null && thread != Thread.currentThread()) {
+            thread.interrupt();
+        }
+    }
+
     @Override
     public void closeConnectionIfExists() {
+        stopMonitoring();
         if (this.mSocket != null) {
             if (!this.mSocket.isClosed()) {
                 try {
@@ -205,9 +264,7 @@ public class NetPrinterAdapter implements PrinterAdapter {
                     e.printStackTrace();
                 }
             }
-
             this.mSocket = null;
-
         }
     }
 

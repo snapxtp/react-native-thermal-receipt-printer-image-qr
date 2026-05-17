@@ -61,6 +61,29 @@ public class RNNetPrinterModule extends ReactContextBaseJavaModule implements RN
     }
 
     @ReactMethod
+    public void isConnected(Callback successCallback, Callback errorCallback) {
+        if (this.adapter == null) {
+            errorCallback.invoke("Net adapter is not initialized. Call init() first.");
+            return;
+        }
+        successCallback.invoke(((NetPrinterAdapter) this.adapter).isConnected());
+    }
+
+    @ReactMethod
+    public void startNetPrinterMonitoring(int intervalMs) {
+        if (this.adapter == null) {
+            this.adapter = NetPrinterAdapter.getInstance();
+        }
+        ((NetPrinterAdapter) this.adapter).startMonitoring(intervalMs);
+    }
+
+    @ReactMethod
+    public void stopNetPrinterMonitoring() {
+        if (this.adapter == null) return;
+        ((NetPrinterAdapter) this.adapter).stopMonitoring();
+    }
+
+    @ReactMethod
     @Override
     public void printRawData(String base64Data, Callback errorCallback) {
         adapter.printRawData(base64Data, errorCallback);
