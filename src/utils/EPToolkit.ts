@@ -64,6 +64,7 @@ type IOptions = {
   cut: boolean;
   tailingLine: boolean;
   encoding: string;
+  codepage?: number;
 };
 
 const default_options: IOptions = {
@@ -79,6 +80,9 @@ export function exchange_text(text: string, options: IOptions): Buffer {
   let bytes = new BufferHelper();
   bytes.concat(init_printer_bytes);
   bytes.concat(default_space_bytes);
+  if (typeof m_options.codepage === "number") {
+    bytes.concat(Buffer.from([0x1b, 0x74, m_options.codepage]));
+  }
   let temp = "";
   for (let i = 0; i < text.length; i++) {
     let ch = text[i];

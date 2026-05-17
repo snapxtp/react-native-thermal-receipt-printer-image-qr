@@ -14,6 +14,24 @@ export interface PrinterOptions {
   cut?: boolean;
   tailingLine?: boolean;
   encoding?: string;
+  /**
+   * ESC/POS codepage number sent as `ESC t n` before text.
+   * Tells the printer which character table to use for the encoded bytes.
+   * Must match the `encoding` option (same charset, different notation).
+   * Android only. Has no effect on iOS.
+   *
+   * Common pairings:
+   *   { codepage: 0,  encoding: "CP437"  }  US/English (default on most printers)
+   *   { codepage: 2,  encoding: "CP850"  }  Multilingual Latin-1
+   *   { codepage: 16, encoding: "CP857"  }  Turkish (ğ ı ö ü ş ç – no ə)
+   *   { codepage: 35, encoding: "CP1254" }  Windows Turkish (same chars, Windows layout)
+   *   { codepage: 33, encoding: "CP1251" }  Cyrillic
+   *   { codepage: 37, encoding: "CP1256" }  Arabic
+   *
+   * For Azerbaijani ə: use a printer that accepts UTF-8 natively and
+   * omit codepage (send UTF-8, the default), OR use image-based printing.
+   */
+  codepage?: number;
 }
 
 export enum PrinterWidth {
