@@ -20,6 +20,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.SocketTimeoutException;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -218,7 +219,16 @@ public class NetPrinterAdapter implements PrinterAdapter {
                     }
                     if (!mMonitorRunning || mSocket == null) continue;
                     try {
-                        mSocket.sendUrgentData(0xFF);
+                        int prevTimeout = mSocket.getSoTimeout();
+                        mSocket.setSoTimeout(100);
+                        try {
+                            int b = mSocket.getInputStream().read();
+                            if (b == -1) throw new IOException("Connection closed by remote");
+                        } catch (SocketTimeoutException ignored) {
+                            // Expected: connection alive, no data available
+                        } finally {
+                            try { mSocket.setSoTimeout(prevTimeout); } catch (IOException ignored) {}
+                        }
                     } catch (IOException e) {
                         if (mMonitorRunning) {
                             Log.w(LOG_TAG, "Net printer connection lost: " + e.getMessage());
